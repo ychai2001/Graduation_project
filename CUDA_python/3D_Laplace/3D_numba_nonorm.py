@@ -1,0 +1,102 @@
+from matplotlib import pyplot as plt
+
+import numpy as np
+import math
+from numpy import linalg
+from numba import cuda
+import time
+
+plt.style.use('ggplot')
+plt.rcParams['figure.dpi'] = 150
+
+@cuda.jit
+def jacobi_gpu(n, ti, dt):
+    i, j, k = cuda.grid(3)
+    if 1 <= i <= n and 1 <= j <= n and 1 <= k <= n:
+        dt[i, j, k] = 1/6 * (
+            ti[i-1, j, k] + ti[i+1, j, k] +
+            ti[i, j-1, k] + ti[i, j+1, k] +
+            ti[i, j, k-1] + ti[i, j, k+1]
+        ) - ti[i, j, k]
+
+# 1~n까지가 내부 점, 경게조건은 외부
+@cuda.jit
+def bc_gpu(t):
+    n = t.shape[0] - 2  # 내부 셀 개수
+    i, j = cuda.grid(2)
+
+    if 1 <= i <= n and 1 <= j <= n:
+        t[i, n+1, j] = 100   # upper side
+        t[i, 0, j] = 100    # lower side
+        t[i, j, n+1] = 100   # Right
+        t[i, j, 0] = 300    # Left
+        t[0, i, j] = 100    # Front
+        t[n+1, i, j] = 100   # Back
+
+
+@cuda.jit
+def add_array_gpu(ti, dt):
+    i, j, k = cuda.grid(3)
+    if i < ti.shape[0] and j < ti.shape[1] and k < ti.shape[2]:
+        ti[i, j, k] += dt[i, j, k]
+
+def Laplace_gpu(n, tol):
+
+    ti = np.zeros((n+2, n+2, n+2))
+    dt = np.zeros((n+2, n+2, n+2))
+    
+    d_ti = cuda.to_device(ti)
+    d_dt = cuda.to_device(dt)
+    
+    # 3차원 Thread Layout 결정
+    threadsperblock = (8,8,8)
+    blockspergrid_x = math.ceil((n+2) / threadsperblock[0])
+    blockspergrid_y = math.ceil((n+2) / threadsperblock[1])
+    blockspergrid_z = math.ceil((n+2) / threadsperblock[2])
+    blockspergrid = (blockspergrid_x, blockspergrid_y, blockspergrid_z)
+
+    # bc위한 2D Layout
+    tpb = (16,16)
+    bpg_x = math.ceil((n+2) / tpb[0])
+    bpg_y = math.ceil((n+2) / tpb[1])
+    bpg = (bpg_x, bpg_y)
+
+    err = 1
+    hist_jacobi = []
+
+    while err > tol:
+        
+        # 경계 조건 2D n개 쓰레드
+        bc_gpu[bpg, tpb](d_ti)
+
+        jacobi_gpu[blockspergrid, threadsperblock](n, d_ti, d_dt)
+
+        dt = d_dt.copy_to_host()
+        err = linalg.norm(dt) / n
+        hist_jacobi.append(err)
+
+        add_array_gpu[blockspergrid, threadsperblock](d_ti, d_dt)
+
+    ti = d_ti.copy_to_host()
+    
+    return ti, hist_jacobi
+
+n= 62
+tol = 1e-4
+xi = np.linspace(0, 1, n+2)
+ti_gpu, _ = Laplace_gpu(n, tol)
+np.save("ti_numba_nonorm.npy", ti_gpu)
+
+
+times_numba = np.empty(7)
+for i in range(10):
+    ns = np.arange(30,79,8)
+    times = []
+
+    for n in ns:
+        t_s_gpu = time.time()
+        Laplace_gpu(n, tol)
+        t_e_gpu = time.time()
+        times.append(t_e_gpu - t_s_gpu)
+    times_numba += times
+np.save("time_numba_nonorm.npy", times_numba/10)
