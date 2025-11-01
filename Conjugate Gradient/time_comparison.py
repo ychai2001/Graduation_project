@@ -63,3 +63,22 @@ def plot_sparse(file):
     else:
         print("로드된 변수 'A'는 희소 행렬 형식이 아닙니다.")
         return
+
+def cond(A):
+    cn = np.linalg.det(A) * np.linalg.det(ssp_linalg.inv(A))
+    return cn
+
+def rmse(a,b):
+    return np.sqrt(np.mean((a - b)**2))
+
+def make_b(A, x_true=None):
+
+    n = A.shape[0]
+
+    if x_true == None:
+        x_true = np.random.rand(n).astype(np.float32)
+        b = A.dot(x_true).astype(np.float32)
+    else:
+        b = A.dot(x_true).astype(np.float32)
+
+    return b, x_true
