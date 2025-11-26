@@ -163,9 +163,9 @@ def cal_time(a):
         raise ValueError('Solution not converged')
 
 
-def plot_sparse(a):
+def plot_sparse(a, color=False):
     """
-    sparse matrix A의 원소 분포를 plot하는 함수, 값이 존재하면 검은색 아니면 흰색
+    sparse matrix A의 원소 분포를 plot하는 함수
 
     parameters
     ---------------------
@@ -175,14 +175,38 @@ def plot_sparse(a):
 
     n = a.shape[0]
 
-    if ssp.issparse(a):
-        plt.figure(figsize=(8,8))
+    if not ssp.issparse(a):
+        print("A is not a sparse matrix")
+        return
+    
+    if color == False:
+        plt.figure(figsize=(8, 8))
         plt.spy(a, color = 'k', markersize=0.1)
         plt.title(f'Matrix pattern ({n}x{n}, non-zeros: {a.nnz})')
         plt.xlabel('column')
         plt.ylabel('row')
-
+        plt.show()
     else:
-        print("A is not a sparse matrix")
-        return
+        a_coo = a.tocoo()
+    
+        rows = a_coo.row
+        cols = a_coo.col
+        data = a_coo.data # 0이 아닌 값들
+
+        plt.figure(figsize=(10, 8))
+        scatter = plt.scatter(
+            cols, 
+            rows, 
+            c=data, 
+            cmap='RdBu_r', # 빨간색(양수)과 파란색(음수)을 잘 나타내는 컬러맵 (RdBu_r 권장)
+            s=1
+        )
+        plt.gca().invert_yaxis()
+        plt.xlim(-0.5, n - 0.5)
+        plt.ylim(n - 0.5, -0.5)
+        plt.colorbar(label='Element Value in Matrix A')
+        plt.title(f'Matrix A Value and Pattern ({n}x{n}, NNZ: {a.nnz})')
+        plt.grid(True, alpha=0.7)
+        plt.show()
+
     
