@@ -2,8 +2,8 @@ from make_sys import *
 from sparse_character import cond
 
 ns = [10000, 20000, 40000, 60000]
-W_ratios = [0.01, 0.02, 0.04, 0.08]
-nnzs = [0.001, 0.005, 0.01, 0.05]
+W_ratios = [0.01, 0.05, 0.1, 0.2]
+nnzs = [0.005, 0.01, 0.05, 0.1, 0.3]
 diags = [1, 2, 4, 8]
 
 file = 'test.csv'
@@ -39,3 +39,4 @@ with open(file, 'w') as f:
                         print(f"기타 오류 발생: {e}")
 
 print(f"\n Done Computing, Results are on '{file}' ")
+
