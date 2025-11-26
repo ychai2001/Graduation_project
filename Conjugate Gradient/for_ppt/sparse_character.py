@@ -126,4 +126,5 @@ def character(a):
     print(f'Condition Number : {c}')
     print(f'Average Diagonlity : {d}')
     print(f'Bandwidth : {b}')
+    print(f'Bandwidth Ratio : {b/np.sqrt(n)}')
     print(f'Non-zeros Ratio : {r_nnz*100} % \n')
