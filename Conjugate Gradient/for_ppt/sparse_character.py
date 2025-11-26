@@ -69,7 +69,7 @@ def diag_ratio(matrix):
 
 def bandwidth(matrix):
     """
-    희소 행렬의 대역폭 (Bandwidth = bl + bu + 1)을 계산합니다.
+    희소 행렬의 대역폭 (Bandwidth)을 계산합니다.
 
     Args:
         matrix: 계산할 scipy.sparse 행렬.
@@ -96,18 +96,10 @@ def bandwidth(matrix):
     rows = A.row
     cols = A.col
     
-    # 1. 상부 대역폭 (Upper Bandwidth, bu): max(j - i)
+    # Upper Bandwidth : max(j - i)
     # 주 대각선 위쪽으로 가장 멀리 떨어진 0이 아닌 요소의 거리
-    upper_band = np.max(cols - rows)
-    
-    # 2. 하부 대역폭 (Lower Bandwidth, bl): max(i - j)
-    # 주 대각선 아래쪽으로 가장 멀리 떨어진 0이 아닌 요소의 거리
-    lower_band = np.max(rows - cols)
-    
-    # 3. 전체 대역폭 계산: Bandwidth = bl + bu + 1
-    # 참고: +1은 주 대각선 자체(j-i=0)를 포함하기 위함입니다.
-    bandwidth = lower_band + upper_band + 1
-    
+    bandwidth = np.max(cols - rows)
+     
     return int(bandwidth)
 
 def size(matrix):
@@ -128,3 +120,4 @@ def character(a):
     print(f'Bandwidth : {b}')
     print(f'Bandwidth Ratio : {b/np.sqrt(n)}')
     print(f'Non-zeros Ratio : {r_nnz*100} % \n')
+
