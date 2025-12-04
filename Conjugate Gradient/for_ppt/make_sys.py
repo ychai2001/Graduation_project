@@ -97,7 +97,7 @@ def make_A(n, W, r_nnz, diag=2.0):
         cols.append(i)
         data.append(diag_val)
     
-    # 7. 최종 희소 행렬 생성 (COO -> CSR 형식)
+    # 7. 최종 희소 행렬 생성
     A = ssp.coo_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
     
     return A
@@ -129,7 +129,7 @@ def make_b(A, x_true=None):
 
     return b, x_true
 
-def cal_time(a):
+def cal_time(a, tol=1e-7):
     """
     A 행렬을 받아와 conjugate gradient method로 Ax=b 계산 시간 비교
     b, x는 make_b 함수로부터 계산
@@ -147,6 +147,8 @@ def cal_time(a):
     """
     
     b, x = make_b(a)
+    bnorm = np.linalg.norm(b)
+    tol = tol*bnorm
 
     a = ssp.csr_matrix(a, dtype=np.float32)
     A = csp.csr_matrix(a, dtype=np.float32)
@@ -165,16 +167,16 @@ def cal_time(a):
         
     t_cpu= 0
     t_gpu = 0
-
+    
+    ssp_linalg.cg(a, b, callback = get_res)
     for i in range(5):
-        ssp_linalg.cg(a, b, callback = get_res)
         ts_cpu = time.time()
         sol_cpu, r_cpu = ssp_linalg.cg(a, b)
         te_cpu = time.time()
         t_cpu += te_cpu-ts_cpu
-
+        
+    csp_linalg.cg(A, B, callback = get_res_gpu)
     for j in range(5):
-        csp_linalg.cg(A, B, callback = get_res_gpu)
         ts_gpu = time.time()
         sol_gpu, r_gpu = csp_linalg.cg(A, B)
         te_gpu = time.time()
@@ -185,10 +187,7 @@ def cal_time(a):
     if r_cpu == 0 and r_gpu == 0:
         diff = np.linalg.norm(sol_cpu - sol_gpu)
         
-        if np.allclose(sol_cpu, sol_gpu, atol=1e-5):
-            #print(f'cpu 계산시간 = {t_cpu/5}(s)')
-            #print(f'gpu 계산시간 = {t_gpu/5}(s)')
-            #print(f'GPU 성능은 CPU의 {t_cpu/t_gpu}배\n')
+        if np.allclose(sol_cpu, x, atol= tol) and np.allclose(sol_gpu, x, atol=tol):
             return t_cpu/5, t_gpu/5, residuals_cpu, residuals_gpu
         else:
             print(f'Exact solution = {x}\n')
@@ -196,7 +195,7 @@ def cal_time(a):
             print(f'GPU solution L2 Error = {np.linalg.norm(sol_gpu - x)}\n')
             print(f'cpu 계산시간 : {t_cpu/5}')
             print(f'gpu 계산시간 : {t_gpu/5}')
-            raise ValueError(f"Solution doesn't match : {diff}")
+            raise ValueError(f"Solution doesn't match, diff : {diff}, tol : {tol}, cpu :{len(residuals_cpu)+1}회 계산, gpu :{len(residuals_gpu)+1}회 계산")
             
     else:
         raise ValueError('Solution not converged')
@@ -249,6 +248,7 @@ def plot_sparse(a, color=False):
         plt.show()
 
     
+
 
 
 
