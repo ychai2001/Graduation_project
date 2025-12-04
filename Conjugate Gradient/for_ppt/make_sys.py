@@ -8,71 +8,97 @@ import cupyx.scipy.sparse.linalg as csp_linalg
 
 from matplotlib import pyplot as plt
 
-def make_A(n, W, diag=2.0):
+def make_A(n, W, r_nnz, diag=2.0):
     """
-    주어진 크기(n)와 대역폭(W)을 갖는 symetric, positive definite, sparse matrix 생성
+    주어진 크기(n), 대역폭(W), 전체 행렬 대비 non-zero 비율(r_nnz)을 갖는
+    symetric, positive definite, sparse matrix 생성 (불가능한 비율 입력 시 오류 반환)
 
     parameters
     ---------------------------
     n: 행렬의 크기 (n x n)
-    W: 대역폭  1 <= W < n,  W=1은 3중 대각 행렬을 의미.
-    diag: 대각 우위의 정도. 값이 클수록 대각 성분이 지배적
-
+    W: 대역폭 (1 <= W < n)
+    r_nnz: 전체 행렬(n*n) 대비 0이 아닌 요소의 비율 (0.0 < r_nnz < 1.0)
+    diag: 대각 우위의 정도.
+    
     return
     ---------------------------
     A : CSR 형식의 symetric, positive definite, sparse matrix (dtype=float32)
     """
     if W < 1 or W >= n:
-        raise ValueError("bandwidth 범위 오류")
+        raise ValueError("bandwidth 범위 오류: 1 <= W < n 이어야 합니다.")
+    if not (0.0 < r_nnz < 1.0):
+        raise ValueError("r_nnz 범위 오류: 0.0 < r_nnz < 1.0 이어야 합니다.")
 
-    # 1. 0이 아닌 성분들의 인덱스 생성
-    # 대역폭 W 이내의 인덱스만 고려하여 i, j 배열생성
+    # W이내에 존재하는 최대 원소 갯수 (upper tringle)
+    if W<= 1:
+        nnz_max_band_upper = 0
+    else:
+        nnz_max_band_upper = (n - W + 1)*(W - 1) + ((W - 2)*(W - 1)) // 2
+    
+    # r_nnz를 기반으로 주 대각선(n개)을 제외한 필요한 비대각 성분 개수(upper tri)
+    num_non_diag_nnz_upper = int(np.ceil(int(np.ceil(n * n * r_nnz)) - n) / 2)
+    
+    # 가능한 최대 nnz보다 r_ratio로 계산된 양이 많을 때
+    if num_non_diag_nnz_upper > nnz_max_band_upper:
+        max_possible_ratio = (2 * nnz_max_band_upper + n) / (n * n)
+        
+        raise ValueError(
+            f"r_nnz({r_nnz:.4f}) passes a limit of Bandwidth({W})\n"
+            f"Maximum possible r_nnz is about {max_possible_ratio:.4f}\n"
+        )
+    
+    # 3. 비대각 성분을 채울 전체 후보 인덱스 쌍 생성 (상삼각 영역, 대역폭 W 내)
+    all_upper_indices = []
+    for i in range(n):
+        # 주대각선(i)을 제외하고, 대역폭 W 이내의 인덱스 (i+1 ~ i+W-1)
+        for j in range(i + 1, min(n, i + W)): 
+            all_upper_indices.append((i, j))
+    
+    # 4. 후보 인덱스에서 무작위로 'num_non_diag_nnz_upper' 개만큼 선택
+    if all_upper_indices:
+        np.random.seed(0) # 재현성을 위해 시드 설정 (선택 사항)
+        sampled_indices_idx = np.random.choice(
+            len(all_upper_indices), 
+            size=num_non_diag_nnz_upper, 
+            replace=False
+        )
+        selected_upper_indices = [all_upper_indices[idx] for idx in sampled_indices_idx]
+    else:
+        selected_upper_indices = []
+
+    # 5. 행렬 데이터 생성 (비대각 성분)
     rows = []
     cols = []
     data = []
-    
-    # Upper Triangle 부분만 생성하여 대칭성 보장
-    for i in range(n):
-        for j in range(i, min(n, i + W)): # 주대각선(j=i)부터 대역폭 W까지
-            
-            # 2. 비대각 성분의 값 설정 (a_ij, i != j)
-            if i != j:
-                # 무작위 값을 사용
-                val = np.random.rand()
-                
-                rows.append(i)
-                cols.append(j)
-                data.append(val)
-                
-                # 대칭 성분 추가 (a_ji = a_ij)
-                rows.append(j)
-                cols.append(i)
-                data.append(val)
-    
-    # 3. 대각 성분의 값 설정 (a_ii)
-    # 각 행의 비대각 성분 합보다 큰 값을 부여하여 '대각 우위'를 만듭니다.
-    # 이는 행렬의 양의 정부호성을 보장하는 일반적인 방법입니다.
-    
-    # 비대각 성분의 절댓값 합을 계산 (대략적인 값)
-    off_diag_sum = np.zeros(n, dtype=np.float32)
-    for r, c, val in zip(rows, cols, data):
-        if r != c:
-            off_diag_sum[r] += abs(val)
 
-    # 대각 성분 생성 (a_ii > sum(|a_ij|))
+    for i, j in selected_upper_indices:
+        val = np.random.rand()  # 무작위 값 (0 ~ 1)
+        
+        # 상삼각 성분 (a_ij) 및 대칭 성분 (a_ji = a_ij) 추가
+        rows.extend([i, j])
+        cols.extend([j, i])
+        data.extend([val, val])
+        
+    # 6. 대각 성분의 값 설정 (a_ii)
+    # 비대각 성분만으로 임시 희소 행렬 생성 (CSR 변환이 효율적)
+    if rows:
+        A_off = ssp.coo_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32).tocsr()
+        # 각 행의 비대각 성분 합
+        off_diag_sum = A_off.sum(axis=1).A1
+    else:
+        off_diag_sum = np.zeros(n, dtype=np.float32)
+
+    # 대각 성분 생성 (대각 우위 보장: a_ii > sum(|a_ij|))
     for i in range(n):
+        # diag 인수를 곱하여 대각 성분 값을 결정
         diag_val = off_diag_sum[i] * diag
         
         rows.append(i)
         cols.append(i)
         data.append(diag_val)
     
-    # 4. 희소 행렬 생성 (COO -> CSR 형식)
+    # 7. 최종 희소 행렬 생성 (COO -> CSR 형식)
     A = ssp.coo_matrix((data, (rows, cols)), shape=(n, n), dtype=np.float32)
-    
-    # 5. 생성된 행렬의 정보 출력
-    #print(f"생성된 행렬의 크기: {A.shape}")
-    #print(f"0이 아닌 성분 개수 (nnz): {A.nnz}\n")
     
     return A
 
@@ -210,3 +236,4 @@ def plot_sparse(a, color=False):
         plt.show()
 
     
+
