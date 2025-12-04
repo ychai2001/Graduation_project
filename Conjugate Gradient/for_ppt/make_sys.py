@@ -160,8 +160,8 @@ def cal_time(a):
         residuals_cpu.append(np.linalg.norm(r_k))
 
     def get_res_gpu(xk):
-        r_k = b - a.dot(xk.get())
-        residuals_gpu.append(np.linalg.norm(r_k)) 
+        r_k = B - A.dot(xk)
+        residuals_gpu.append(cp.linalg.norm(r_k).get()) 
         
     t_cpu= 0
     t_gpu = 0
@@ -249,5 +249,6 @@ def plot_sparse(a, color=False):
         plt.show()
 
     
+
 
 
