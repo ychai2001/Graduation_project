@@ -152,16 +152,29 @@ def cal_time(a):
     A = csp.csr_matrix(a, dtype=np.float32)
     B = cp.asarray(b, dtype=np.float32)   # 이거는 cpu to gpu같은거
 
+    residuals_cpu = []
+    residuals_gpu = []
+
+    def get_res(xk):
+        r_k = b - a.dot(xk)
+        residuals_cpu.append(np.linalg.norm(r_k))
+
+    def get_res_gpu(xk):
+        r_k = b - a.dot(xk.get())
+        residuals_gpu.append(np.linalg.norm(r_k)) 
+        
     t_cpu= 0
     t_gpu = 0
 
     for i in range(5):
+        ssp_linalg.cg(a, b, callback = get_res)
         ts_cpu = time.time()
         sol_cpu, r_cpu = ssp_linalg.cg(a, b)
         te_cpu = time.time()
         t_cpu += te_cpu-ts_cpu
 
     for j in range(5):
+        csp_linalg.cg(A, B, callback = get_res_gpu)
         ts_gpu = time.time()
         sol_gpu, r_gpu = csp_linalg.cg(A, B)
         te_gpu = time.time()
@@ -176,7 +189,7 @@ def cal_time(a):
             #print(f'cpu 계산시간 = {t_cpu/5}(s)')
             #print(f'gpu 계산시간 = {t_gpu/5}(s)')
             #print(f'GPU 성능은 CPU의 {t_cpu/t_gpu}배\n')
-            return t_cpu/5, t_gpu/5
+            return t_cpu/5, t_gpu/5, residuals_cpu, residuals_gpu
         else:
             print(f'Exact solution = {x}\n')
             print(f'CPU solution L2 Error = {np.linalg.norm(sol_cpu - x)}')
@@ -236,4 +249,5 @@ def plot_sparse(a, color=False):
         plt.show()
 
     
+
 
