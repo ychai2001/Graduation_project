@@ -26,7 +26,7 @@ def saxpby(a, x, b, y):
         y[i] = a * x[i] + b * y[i]
 
     
-def cg_cpu(A, b, x0=None, tol=1e-5, atol=None, itmax=5000, verbose=False, callback=None):
+def cg_cpu(A, b, x0=None, tol=1e-5, atol=None, itmax=None, verbose=False, callback=None):
     spmv = make_spmv(A)
 
     bnorm = np.linalg.norm(b)
@@ -36,6 +36,9 @@ def cg_cpu(A, b, x0=None, tol=1e-5, atol=None, itmax=5000, verbose=False, callba
         tol_eff = tol * float(bnorm)
     else:
         tol_eff = max(float(atol), tol * float(bnorm))
+
+    if itmax == None:
+        itmax = len(b)*10
 
     if x0 is None:
         x = np.zeros_like(b)
@@ -76,7 +79,7 @@ def cg_cpu(A, b, x0=None, tol=1e-5, atol=None, itmax=5000, verbose=False, callba
 
     return x, it + 1
 
-def cg_cp(A, b, M = None, x0=None, tol=1e-5, itmax=5000, atol=None, verbose=False, callback=None):
+def cg_cp(A, b, M = None, x0=None, tol=1e-5, itmax=None, atol=None, verbose=False, callback=None):
     assert cupyx.scipy.sparse.isspmatrix(A), "A must be sparse"
 
     b = b.astype(cp.float32)
@@ -89,6 +92,9 @@ def cg_cp(A, b, M = None, x0=None, tol=1e-5, itmax=5000, atol=None, verbose=Fals
         tol_eff = tol * float(bnorm)
     else:
         tol_eff = max(float(atol), tol * float(bnorm))
+
+    if itmax == None:
+        itmax = len(b)*10
 
     r = b - A @ x
     r0 = cp.linalg.norm(r)
@@ -140,5 +146,6 @@ def cg_cp(A, b, M = None, x0=None, tol=1e-5, itmax=5000, atol=None, verbose=Fals
         
         if verbose:
             print(k+1, f"{r_true:.3e}")
+
 
     return x, k+1
