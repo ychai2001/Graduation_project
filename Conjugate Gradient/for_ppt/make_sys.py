@@ -5,6 +5,8 @@ import cupy as cp
 import time
 import cupyx.scipy.sparse as csp
 import cupyx.scipy.sparse.linalg as csp_linalg
+import gc
+from cg_solver import cg_cp, cg_cpu
 
 from matplotlib import pyplot as plt
 
@@ -129,7 +131,7 @@ def make_b(A, x_true=None):
 
     return b, x_true
 
-def cal_time(a, tol=1e-7):
+def cal_time(a, tol=1e-5, residual=True):
     """
     A 행렬을 받아와 conjugate gradient method로 Ax=b 계산 시간 비교
     b, x는 make_b 함수로부터 계산
@@ -145,61 +147,104 @@ def cal_time(a, tol=1e-7):
     t_cpu : Computing time for Ax=b in CPU
     t_gpu : Computing time for Ax=b in GPU
     """
-    
+    # allclose의 tol설정
     b, x = make_b(a)
     bnorm = np.linalg.norm(b)
     tol = tol*bnorm
 
     a = ssp.csr_matrix(a, dtype=np.float32)
-    A = csp.csr_matrix(a, dtype=np.float32)
-    B = cp.asarray(b, dtype=np.float32)   # 이거는 cpu to gpu같은거
+    A = csp.csr_matrix(a, dtype=cp.float32)
+    B = cp.asarray(b, dtype=cp.float32)   # 이거는 cpu to gpu같은거
 
     residuals_cpu = []
     residuals_gpu = []
+    residuals_nb = []
+    residuals_cupy = []
 
     def get_res(xk):
         r_k = b - a.dot(xk)
         residuals_cpu.append(np.linalg.norm(r_k))
 
+    def get_res_nb(xk):
+        r_k = b - a.dot(xk)
+        residuals_nb.append(np.linalg.norm(r_k))
+
     def get_res_gpu(xk):
         r_k = B - A.dot(xk)
-        residuals_gpu.append(cp.linalg.norm(r_k).get()) 
-        
+        residuals_gpu.append(cp.linalg.norm(r_k).get())
+
+    def get_res_cupy(xk):
+        r_k = B - A.dot(xk)
+        residuals_cupy.append(cp.linalg.norm(r_k).get()) 
+
     t_cpu= 0
     t_gpu = 0
-    
-    ssp_linalg.cg(a, b, callback = get_res)
-    for i in range(5):
+    t_nb = 0
+    t_cupy = 0
+
+    mempool = cp.get_default_memory_pool()
+
+    #scipy sparse cpu시간
+    ssp_linalg.cg(a, b, callback=get_res if residual else None) #한번 계산 버릴 겸 residual 계산
+    for i in range(20):
         ts_cpu = time.time()
         sol_cpu, r_cpu = ssp_linalg.cg(a, b)
         te_cpu = time.time()
-        t_cpu += te_cpu-ts_cpu
-        
-    csp_linalg.cg(A, B, callback = get_res_gpu)
-    for j in range(5):
+        if i >= 10:
+            t_cpu += te_cpu-ts_cpu
+
+    # cpu병렬화 버전
+    cg_cpu(a, b, callback=get_res_nb if residual else None) #한번 계산 버릴 겸 residual 계산
+    for j in range(20):
+        ts_nb = time.time()
+        sol_nb, it_nb = cg_cpu(a, b)
+        te_nb = time.time()
+        if j >= 10:
+            t_nb += te_nb-ts_nb
+
+    #cupy sparse gpu 시간
+    csp_linalg.cg(A, B, callback=get_res_gpu if residual else None) #한번 계산 버릴 겸 residual 계산
+    for k in range(20):
         ts_gpu = time.time()
         sol_gpu, r_gpu = csp_linalg.cg(A, B)
         te_gpu = time.time()
-        t_gpu += te_gpu-ts_gpu
+        if k >= 10:
+            t_gpu += te_gpu-ts_gpu
     sol_gpu = sol_gpu.get()
+    gc.collect()
+    mempool.free_all_blocks()
+
+    # gpu 병렬화 버전
+    cg_cp(A, B, callback=get_res_cupy if residual else None) #한번 계산 버릴 겸 residual 계산
+    for l in range(20):
+        ts_cupy = time.time()
+        sol_cupy, it_cupy = cg_cp(A, B)
+        te_cupy = time.time()
+        if l >= 10:
+            t_cupy += te_cupy-ts_cupy
+    sol_cupy = sol_cupy.get()
+    gc.collect()
+    mempool.free_all_blocks()
 
     # scipy와 cupyx.scipy에서 계산 후 반환값이 0 이면 max iter도달 전 수렴했다는 의미
     if r_cpu == 0 and r_gpu == 0:
-        diff = np.linalg.norm(sol_cpu - sol_gpu)
         
-        if np.allclose(sol_cpu, x, atol= tol) and np.allclose(sol_gpu, x, atol=tol):
-            return t_cpu/5, t_gpu/5, residuals_cpu, residuals_gpu
+        if np.allclose(sol_cpu, x, atol= tol) and np.allclose(sol_gpu, x, atol=tol) and np.allclose(sol_nb, x, atol=tol) and np.allclose(sol_cupy, x, atol=tol):
+            if residual:
+                return t_cpu/5, t_gpu/5, t_nb/5, t_cupy/5, residuals_cpu, residuals_gpu, residuals_nb, residuals_cupy
+            else:
+                return t_cpu/5, t_gpu/10, t_nb/5, t_cupy/5
+        
         else:
             print(f'Exact solution = {x}\n')
             print(f'CPU solution L2 Error = {np.linalg.norm(sol_cpu - x)}')
             print(f'GPU solution L2 Error = {np.linalg.norm(sol_gpu - x)}\n')
             print(f'cpu 계산시간 : {t_cpu/5}')
             print(f'gpu 계산시간 : {t_gpu/5}')
-            raise ValueError(f"Solution doesn't match, diff : {diff}, tol : {tol}, cpu :{len(residuals_cpu)+1}회 계산, gpu :{len(residuals_gpu)+1}회 계산")
+            raise ValueError(f"Solution doesn't match, tol : {tol}, cpu :{len(residuals_cpu)+1}회 계산, gpu :{len(residuals_gpu)+1}회 계산")
             
     else:
         raise ValueError('Solution not converged')
-
 
 def plot_sparse(a, color=False):
     """
@@ -248,6 +293,7 @@ def plot_sparse(a, color=False):
         plt.show()
 
     
+
 
 
 
