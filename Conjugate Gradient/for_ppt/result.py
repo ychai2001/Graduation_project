@@ -87,4 +87,5 @@ for n in ns:
     cbar = plt.colorbar(contour_filled)
     cbar.set_label('Predicted su_gpu Value')
 
-    plt.show()
+
+    plt.savefig(f'speedups/su_cupy_n{int(n)}_diag{diag_fixed}', dpi=300)
